@@ -7,10 +7,6 @@ import threading
 from flask import Flask, jsonify, request
 from PIL import Image, ImageEnhance, ImageOps
 import pytesseract
-import pytesseract
-
-pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
-
 import telebot
 
 app = Flask(__name__)
@@ -27,12 +23,14 @@ HEDEF_KANAL = "@RXWINSS"
 gonderilen_fotolar = set()
 
 
-# Veritabanı Tablosu Oluşturma
+# Veritabanı Tablosu Oluşturma (Eski bozuk tabloyu otomatik temizler)
 def init_db():
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
+  # Eski hatalı tablo yapısını sıfırlayıp güncel sütunlarla yeniden kurar
+  cursor.execute("DROP TABLE IF EXISTS keys")
   cursor.execute(
-      """CREATE TABLE IF NOT EXISTS keys (
+      """CREATE TABLE keys (
                       id INTEGER PRIMARY KEY AUTOINCREMENT,
                       key_text TEXT UNIQUE,
                       status TEXT DEFAULT 'active'
