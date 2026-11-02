@@ -25,26 +25,44 @@ HEDEF_KANAL = "@RXWINSS"
 gonderilen_fotolar = set()
 
 
-# Veritabanı ve Şema Güncelleme (Eski tabloları otomatik onarır)
+# Akıllı Veritabanı Onarıcı (Eski tabloları otomatik düzeltir, veri kaybettirmez)
 def init_db():
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
+
   cursor.execute(
-      """CREATE TABLE IF NOT EXISTS keys (
-                      id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      key_text TEXT UNIQUE,
-                      status TEXT DEFAULT 'active'
-                  )"""
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='keys';"
   )
-  # Eski tablolarda sütun eksikse hata vermeden ekler
-  try:
-    cursor.execute("ALTER TABLE keys ADD COLUMN key_text TEXT UNIQUE;")
-  except sqlite3.OperationalError:
-    pass
-  try:
-    cursor.execute("ALTER TABLE keys ADD COLUMN status TEXT DEFAULT 'active';")
-  except sqlite3.OperationalError:
-    pass
+  table_exists = cursor.fetchone()
+
+  if not table_exists:
+    cursor.execute(
+        """CREATE TABLE keys (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        key_text TEXT UNIQUE,
+                        status TEXT DEFAULT 'active'
+                    )"""
+    )
+  else:
+    cursor.execute("PRAGMA table_info(keys);")
+    columns = [col[1] for col in cursor.fetchall()]
+    if "key_text" not in columns:
+      try:
+        cursor.execute("ALTER TABLE keys RENAME TO keys_old;")
+        cursor.execute(
+            """CREATE TABLE keys (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            key_text TEXT UNIQUE,
+                            status TEXT DEFAULT 'active'
+                        )"""
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO keys (key_text, status) SELECT * FROM"
+            " keys_old;"
+        )
+        cursor.execute("DROP TABLE keys_old;")
+      except Exception:
+        pass
 
   conn.commit()
   conn.close()
@@ -140,7 +158,6 @@ def handle_media(message):
         else message.from_user.first_name
     )
 
-    # Eğer belge (dosya olarak) gönderildiyse fotoğraf gibi işleme alabilmek için
     if message.content_type == "document" and message.document.mime_type.startswith(
         "image"
     ):
@@ -283,3 +300,4 @@ def api_check():
 if __name__ == "__main__":
   port = int(os.environ.get("PORT", 5000))
   app.run(host="0.0.0.0", port=port)
+  
