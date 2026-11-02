@@ -7,6 +7,10 @@ import threading
 from flask import Flask, jsonify, request
 from PIL import Image, ImageEnhance, ImageOps
 import pytesseract
+import pytesseract
+
+pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+
 import telebot
 
 app = Flask(__name__)
