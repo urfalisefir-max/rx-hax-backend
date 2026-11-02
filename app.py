@@ -25,7 +25,7 @@ HEDEF_KANAL = "@RXWINSS"
 gonderilen_fotolar = set()
 
 
-# Veritabanı Tablosu Oluşturma (Verileri silmeden korur)
+# Veritabanı ve Şema Güncelleme (Eski tabloları otomatik onarır)
 def init_db():
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
@@ -36,6 +36,16 @@ def init_db():
                       status TEXT DEFAULT 'active'
                   )"""
   )
+  # Eski tablolarda sütun eksikse hata vermeden ekler
+  try:
+    cursor.execute("ALTER TABLE keys ADD COLUMN key_text TEXT UNIQUE;")
+  except sqlite3.OperationalError:
+    pass
+  try:
+    cursor.execute("ALTER TABLE keys ADD COLUMN status TEXT DEFAULT 'active';")
+  except sqlite3.OperationalError:
+    pass
+
   conn.commit()
   conn.close()
 
@@ -121,7 +131,7 @@ def list_keys(message):
 # ==========================================
 # 2. WİN SS / OCR FİLTRELEME BOTU (RXWINSS_BOT)
 # ==========================================
-@win_bot.message_handler(content_types=["photo", "video"])
+@win_bot.message_handler(content_types=["photo", "video", "document"])
 def handle_media(message):
   try:
     gonderen = (
@@ -130,8 +140,17 @@ def handle_media(message):
         else message.from_user.first_name
     )
 
-    if message.content_type == "photo":
+    # Eğer belge (dosya olarak) gönderildiyse fotoğraf gibi işleme alabilmek için
+    if message.content_type == "document" and message.document.mime_type.startswith(
+        "image"
+    ):
+      file_info = win_bot.get_file(message.document.file_id)
+    elif message.content_type == "photo":
       file_info = win_bot.get_file(message.photo[-1].file_id)
+    else:
+      file_info = None
+
+    if file_info:
       downloaded_file = win_bot.download_file(file_info.file_path)
 
       foto_hash = hashlib.md5(downloaded_file).hexdigest()
