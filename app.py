@@ -29,7 +29,6 @@ gonderilen_fotolar = set()
 def init_db():
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
-  # Tablo varsa verileri silmez, sadece yoksa oluşturur
   cursor.execute(
       """CREATE TABLE IF NOT EXISTS keys (
                       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -224,7 +223,7 @@ def self_ping():
   url = "https://rx-hax-backend.onrender.com"
   while True:
     try:
-      time.sleep(240)  # Her 4 dakikada bir kendi adresine istek atar
+      time.sleep(240)
       requests.get(url, timeout=10)
     except Exception:
       pass
@@ -232,7 +231,7 @@ def self_ping():
 
 if not os.environ.get("BOTS_RUNNING"):
   os.environ["BOTS_RUNNING"] = "true"
-  threading.Thread(target=run_key_bot, daemon=Thread := True).start()
+  threading.Thread(target=run_key_bot, daemon=True).start()
   threading.Thread(target=run_win_bot, daemon=True).start()
   threading.Thread(target=self_ping, daemon=True).start()
 
