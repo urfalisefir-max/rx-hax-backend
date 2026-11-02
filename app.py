@@ -25,7 +25,7 @@ HEDEF_KANAL = "@RXWINSS"
 gonderilen_fotolar = set()
 
 
-# Akıllı Veritabanı Onarıcı (Eski tabloları otomatik düzeltir, veri kaybettirmez)
+# Akıllı Veritabanı Onarıcı
 def init_db():
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
@@ -238,6 +238,7 @@ def run_key_bot():
   try:
     print("🔑 Key Bot Başlatılıyor...")
     init_db()
+    key_bot.remove_webhook()  # Takılı kalan webhook engellerini temizler
     key_bot.infinity_polling(
         skip_pending=True, timeout=60, long_polling_timeout=60
     )
@@ -248,6 +249,7 @@ def run_key_bot():
 def run_win_bot():
   try:
     print("🛡️ Win SS Bot Başlatılıyor...")
+    win_bot.remove_webhook()  # Takılı kalan webhook engellerini temizler
     win_bot.infinity_polling(
         skip_pending=True, timeout=60, long_polling_timeout=60
     )
@@ -300,5 +302,6 @@ def api_check():
 if __name__ == "__main__":
   port = int(os.environ.get("PORT", 5000))
   app.run(host="0.0.0.0", port=port)
+        
 
   
