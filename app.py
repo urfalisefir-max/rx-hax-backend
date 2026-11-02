@@ -4,9 +4,11 @@ import os
 import re
 import sqlite3
 import threading
+import time
 from flask import Flask, jsonify, request
 from PIL import Image, ImageEnhance, ImageOps
 import pytesseract
+import requests
 import telebot
 
 app = Flask(__name__)
@@ -23,14 +25,13 @@ HEDEF_KANAL = "@RXWINSS"
 gonderilen_fotolar = set()
 
 
-# Veritabanı Tablosu Oluşturma (Eski bozuk tabloyu otomatik temizler)
+# Veritabanı Tablosu Oluşturma (Verileri silmeden korur)
 def init_db():
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
-  # Eski hatalı tablo yapısını sıfırlayıp güncel sütunlarla yeniden kurar
-  cursor.execute("DROP TABLE IF EXISTS keys")
+  # Tablo varsa verileri silmez, sadece yoksa oluşturur
   cursor.execute(
-      """CREATE TABLE keys (
+      """CREATE TABLE IF NOT EXISTS keys (
                       id INTEGER PRIMARY KEY AUTOINCREMENT,
                       key_text TEXT UNIQUE,
                       status TEXT DEFAULT 'active'
@@ -196,7 +197,7 @@ def handle_media(message):
 
 
 # ==========================================
-# 3. BOTLARI ARKA PLANDA ÇALIŞTIRAN THREAD'LER
+# 3. THREAD'LER VE KENDİNİ UYANDIRMA (SELF-PING)
 # ==========================================
 def run_key_bot():
   try:
@@ -219,10 +220,21 @@ def run_win_bot():
     print(f"Win SS Bot Polling Hatası: {e}")
 
 
+def self_ping():
+  url = "https://rx-hax-backend.onrender.com"
+  while True:
+    try:
+      time.sleep(240)  # Her 4 dakikada bir kendi adresine istek atar
+      requests.get(url, timeout=10)
+    except Exception:
+      pass
+
+
 if not os.environ.get("BOTS_RUNNING"):
   os.environ["BOTS_RUNNING"] = "true"
-  threading.Thread(target=run_key_bot, daemon=True).start()
+  threading.Thread(target=run_key_bot, daemon=Thread := True).start()
   threading.Thread(target=run_win_bot, daemon=True).start()
+  threading.Thread(target=self_ping, daemon=True).start()
 
 
 # ==========================================
