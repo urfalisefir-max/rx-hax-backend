@@ -1,5 +1,7 @@
-Flask
-pyTelegramBotAPI
+flask
 pytesseract
-Pillow
+pillow
+pyTelegramBotAPI
+requests
 gunicorn
+
