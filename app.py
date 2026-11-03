@@ -1,306 +1,190 @@
-import hashlib
-import io
-import os
-import re
 import sqlite3
-import threading
-import time
-from flask import Flask, jsonify, request
-from PIL import Image, ImageEnhance, ImageOps
-import pytesseract
-import requests
-import telebot
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, CallbackQueryHandler, 
+    MessageHandler, filters, ContextTypes, ConversationHandler
+)
 
-app = Flask(__name__)
+# Konuşma Adımları
+CHOOSING_DURATION, CUSTOM_DURATION, CHOOSING_DEVICE, CUSTOM_DEVICE = range(4)
 
-# --- TOKENLER VE AYARLAR ---
-KEY_BOT_TOKEN = "9009112136:AAHpDw34EDBNEDbAprBM6MfMgQHoC90j6Oc"
-WIN_BOT_TOKEN = "9148266048:AAGupZmFeSO22C6ZjbZ0fFgZgydNC8Iya2U"
-
-key_bot = telebot.TeleBot(KEY_BOT_TOKEN)
-win_bot = telebot.TeleBot(WIN_BOT_TOKEN)
-
-DB_PATH = "keys.db"
-HEDEF_KANAL = "@RXWINSS"
-gonderilen_fotolar = set()
-
-
-# Akıllı Veritabanı Onarıcı
+# Veritabanı Kurulumu
 def init_db():
-  try:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect("keys.db")
     cursor = conn.cursor()
-    cursor.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='keys';"
-    )
-    table_exists = cursor.fetchone()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS keys (
+            key_text TEXT PRIMARY KEY,
+            duration TEXT,
+            device_limit INTEGER,
+            is_frozen INTEGER DEFAULT 0
+        )
+    """)
+    conn.commit()
+    conn.close()
 
-    if not table_exists:
-      cursor.execute(
-          """CREATE TABLE keys (
-                          id INTEGER PRIMARY KEY AUTOINCREMENT,
-                          key_text TEXT UNIQUE,
-                          status TEXT DEFAULT 'active'
-                      )"""
-      )
+init_db()
+
+# /start Komutu ve Ana Menü
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("➕ Key Ekle (Add Key)", callback_data="add_key")],
+        [InlineKeyboardButton("❄️ Key Dondur / Çöz", callback_data="toggle_freeze")],
+        [InlineKeyboardButton("🗑️ Key Sil", callback_data="delete_key")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if update.message:
+        await update.message.reply_text("🔑 **Key Yönetim Paneli**", reply_markup=reply_markup, parse_mode="Markdown")
+    elif update.callback_query:
+        await update.callback_query.edit_message_text("🔑 **Key Yönetim Paneli**", reply_markup=reply_markup, parse_mode="Markdown")
+
+# Adım 1: Key Metnini Alma
+async def start_add_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    await query.edit_message_text("Lütfen eklemek istediğiniz **Key** metnini yazın:")
+    return CHOOSING_DURATION
+
+# Adım 2: Süre Seçimi Menüsü
+async def receive_key_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['key_text'] = update.message.text
+    
+    keyboard = [
+        [InlineKeyboardButton("1 SAAT", callback_data="dur_1h"), InlineKeyboardButton("1 GÜN", callback_data="dur_1d")],
+        [InlineKeyboardButton("7 GÜN", callback_data="dur_7d"), InlineKeyboardButton("15 GÜN", callback_data="dur_15d")],
+        [InlineKeyboardButton("30 GÜN", callback_data="dur_30d")],
+        [InlineKeyboardButton("✏️ Manuel Gün Gir", callback_data="dur_custom")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"Key: `{context.user_data['key_text']}`\n\nLütfen **Süre** seçin:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+    return CHOOSING_DEVICE
+
+# Özel Süre Girme İsteği
+async def custom_duration_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("Lütfen geçerli gün sayısını sayı olarak yazın (Örn: 45):")
+    return CUSTOM_DURATION
+
+async def receive_custom_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['duration'] = f"{update.message.text} GÜN"
+    return await show_device_menu(update, context)
+
+# Adım 3: Cihaz Sınırı Menüsü
+async def duration_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    dur_map = {
+        "dur_1h": "1 SAAT", "dur_1d": "1 GÜN", 
+        "dur_7d": "7 GÜN", "dur_15d": "15 GÜN", "dur_30d": "30 GÜN"
+    }
+    context.user_data['duration'] = dur_map[query.data]
+    
+    keyboard = [
+        [InlineKeyboardButton("100 CİHAZ", callback_data="dev_100"), InlineKeyboardButton("250 CİHAZ", callback_data="dev_250")],
+        [InlineKeyboardButton("500 CİHAZ", callback_data="dev_500"), InlineKeyboardButton("1000 CİHAZ", callback_data="dev_1000")],
+        [InlineKeyboardButton("✏️ Manuel Cihaz Sınırı Gir", callback_data="dev_custom")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"Key: `{context.user_data['key_text']}`\nSüre: {context.user_data['duration']}\n\nLütfen **Cihaz Sınırı** seçin:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+    return CHOOSING_DEVICE
+
+# Özel Cihaz Sınırı İsteği
+async def custom_device_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("Lütfen cihaz sınırını sayı olarak yazın (Örn: 50):")
+    return CUSTOM_DEVICE
+
+async def receive_custom_device(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['device_limit'] = int(update.message.text)
+    return await finalize_key_creation(update, context)
+
+# Adım 4: Key Oluşturma ve Kaydetme
+async def device_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    dev_map = {"dev_100": 100, "dev_250": 250, "dev_500": 500, "dev_1000": 1000}
+    context.user_data['device_limit'] = dev_map[query.data]
+    
+    return await finalize_key_creation(update, context)
+
+async def finalize_key_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    key_text = context.user_data['key_text']
+    duration = context.user_data['duration']
+    device_limit = context.user_data['device_limit']
+    
+    # DB Kayıt
+    conn = sqlite3.connect("keys.db")
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO keys (key_text, duration, device_limit, is_frozen) VALUES (?, ?, ?, 0)",
+                   (key_text, duration, device_limit))
+    conn.commit()
+    conn.close()
+    
+    text = (
+        f"✅ **Key Başarıyla Oluşturuldu!**\n\n"
+        f"🔑 **Key:** `{key_text}`\n"
+        f"⏳ **Süre:** {duration}\n"
+        f"📱 **Cihaz Sınırı:** {device_limit}\n"
+        f"❄️ **Durum:** Aktif"
+    )
+    
+    keyboard = [[InlineKeyboardButton("🔙 Ana Menü", callback_data="main_menu")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode="Markdown")
     else:
-      cursor.execute("PRAGMA table_info(keys);")
-      columns = [col[1] for col in cursor.fetchall()]
-      if "key_text" not in columns:
-        cursor.execute("ALTER TABLE keys RENAME TO keys_old;")
-        cursor.execute(
-            """CREATE TABLE keys (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            key_text TEXT UNIQUE,
-                            status TEXT DEFAULT 'active'
-                        )"""
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO keys (key_text, status) SELECT * FROM"
-            " keys_old;"
-        )
-        cursor.execute("DROP TABLE keys_old;")
-    conn.commit()
-    conn.close()
-  except Exception as e:
-    print(f"DB Init Hatası: {e}")
+        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+        
+    return ConversationHandler.END
 
+# Key Dondurma İşlemi
+async def toggle_freeze(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("Dondurmak veya Çözmek istediğiniz **Key** metnini yazın:")
+    # Burada tekli mesaj yakalama veya ayrı bir handler kullanılabilir.
 
-# ==========================================
-# 1. KEY YÖNETİM BOTU KODLARI (WTJKeyBot)
-# ==========================================
-@key_bot.message_handler(commands=["start"])
-def key_bot_start(message):
-  key_bot.reply_to(
-      message,
-      "🔑 **RX-HAX Key Yönetim Botuna** Hoş Geldin!\n\n"
-      "Komutlar:\n"
-      "/ekle <key> - Yeni lisans keyi ekler\n"
-      "/sil <key> - Keyi siler\n"
-      "/liste - Kayıtlı keyleri listeler",
-      parse_mode="Markdown",
-  )
+def main():
+    app = ApplicationBuilder().token("BOT_TOKEN_BURAYA").build()
 
-
-@key_bot.message_handler(commands=["ekle"])
-def add_key(message):
-  try:
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-      key_bot.reply_to(message, "⚠️ Kullanım: `/ekle <key-degeri>`")
-      return
-    new_key = parts[1].strip()
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT OR IGNORE INTO keys (key_text, status) VALUES (?, 'active')",
-        (new_key,),
-    )
-    conn.commit()
-    conn.close()
-    key_bot.reply_to(message, f"✅ Key başarıyla eklendi: `{new_key}`")
-  except Exception as e:
-    key_bot.reply_to(message, f"❌ Hata: {e}")
-
-
-@key_bot.message_handler(commands=["sil"])
-def delete_key(message):
-  try:
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-      key_bot.reply_to(message, "⚠️ Kullanım: `/sil <key-degeri>`")
-      return
-    target_key = parts[1].strip()
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM keys WHERE key_text = ?", (target_key,))
-    conn.commit()
-    conn.close()
-    key_bot.reply_to(message, f"🗑️ Key silindi: `{target_key}`")
-  except Exception as e:
-    key_bot.reply_to(message, f"❌ Hata: {e}")
-
-
-@key_bot.message_handler(commands=["liste"])
-def list_keys(message):
-  try:
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT key_text FROM keys")
-    rows = cursor.fetchall()
-    conn.close()
-
-    if not rows:
-      key_bot.reply_to(message, "📂 Veritabanında kayıtlı key bulunmuyor.")
-      return
-
-    key_list = "\n".join([f"• `{row[0]}`" for row in rows])
-    key_bot.reply_to(
-        message, f"📋 **Kayıtlı Keyler:**\n\n{key_list}", parse_mode="Markdown"
-    )
-  except Exception as e:
-    key_bot.reply_to(message, f"❌ Hata: {e}")
-
-
-# ==========================================
-# 2. WİN SS / OCR FİLTRELEME BOTU (RXWINSS_BOT)
-# ==========================================
-@win_bot.message_handler(content_types=["photo", "video", "document"])
-def handle_media(message):
-  try:
-    gonderen = (
-        f"@{message.from_user.username}"
-        if message.from_user.username
-        else message.from_user.first_name
+    conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_add_key, pattern="^add_key$")],
+        states={
+            CHOOSING_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_key_text)],
+            CUSTOM_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_custom_duration)],
+            CHOOSING_DEVICE: [
+                CallbackQueryHandler(duration_selected, pattern="^dur_(1h|1d|7d|15d|30d)$"),
+                CallbackQueryHandler(custom_duration_prompt, pattern="^dur_custom$"),
+                CallbackQueryHandler(device_selected, pattern="^dev_(100|250|500|1000)$"),
+                CallbackQueryHandler(custom_device_prompt, pattern="^dev_custom$")
+            ],
+            CUSTOM_DEVICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_custom_device)]
+        },
+        fallbacks=[CommandHandler("start", start)]
     )
 
-    if message.content_type == "document" and message.document.mime_type.startswith(
-        "image"
-    ):
-      file_info = win_bot.get_file(message.document.file_id)
-    elif message.content_type == "photo":
-      file_info = win_bot.get_file(message.photo[-1].file_id)
-    else:
-      file_info = None
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(start, pattern="^main_menu$"))
+    app.add_handler(conv_handler)
 
-    if file_info:
-      downloaded_file = win_bot.download_file(file_info.file_path)
-
-      foto_hash = hashlib.md5(downloaded_file).hexdigest()
-      if foto_hash in gonderilen_fotolar:
-        win_bot.reply_to(message, "⚠️ Bu ekran görüntüsü daha önce paylaşıldı!")
-        return
-
-      orijinal_gorsel = io.BytesIO(downloaded_file)
-
-      img = Image.open(io.BytesIO(downloaded_file)).convert("L")
-      img = img.resize((img.width * 2, img.height * 2), Image.Resampling.BICUBIC)
-
-      enhancer = ImageEnhance.Contrast(img)
-      img_contrast = enhancer.enhance(2.0)
-
-      metin1 = pytesseract.image_to_string(img_contrast, config="--psm 3")
-      metin2 = pytesseract.image_to_string(img_contrast, config="--psm 11")
-      metin3 = pytesseract.image_to_string(
-          ImageOps.invert(img_contrast), config="--psm 11"
-      )
-      metin4 = pytesseract.image_to_string(img, config="--psm 6")
-
-      ham_metin = (metin1 + "\n" + metin2 + "\n" + metin3 + "\n" + metin4).lower()
-      temiz_metin = re.sub(r"[^a-z0-9]", "", ham_metin)
-
-      etiket_var = "rxhax" in temiz_metin
-
-      if etiket_var:
-        gonderilen_fotolar.add(foto_hash)
-
-        caption_text = (
-            f"🎯 Yeni Win / MVP SS Tespit Edildi!\n\n"
-            f"👤 Gönderen: {gonderen}\n"
-            f"🔍 Etiket Doğrulandı: @RX_HAX"
-        )
-        win_bot.send_photo(HEDEF_KANAL, orijinal_gorsel, caption=caption_text)
-        win_bot.reply_to(message, "✅ Etiket okundu, kanala iletildi!")
-      else:
-        win_bot.reply_to(message, "❌ RX HAX etiketi okunamadı!")
-
-    elif message.content_type == "video":
-      caption = message.caption.lower() if message.caption else ""
-
-      if "rx" in caption and "hax" in caption:
-        file_info = win_bot.get_file(message.video.file_id)
-        downloaded_file = win_bot.download_file(file_info.file_path)
-        orijinal_video = io.BytesIO(downloaded_file)
-
-        caption_text = (
-            f"🎥 Yeni Win Videosu Tespit Edildi!\n\n"
-            f"👤 Gönderen: {gonderen}\n"
-            f"🔍 Durum: Etiket Doğrulandı"
-        )
-        win_bot.send_video(HEDEF_KANAL, orijinal_video, caption=caption_text)
-        win_bot.reply_to(message, "✅ Video kanala iletildi!")
-      else:
-        win_bot.reply_to(message, "❌ Açıklamaya @RX_HAX yazmalısın!")
-
-  except Exception as e:
-    print(f"Hata detayı: {e}")
-
-
-# ==========================================
-# 3. KESİNTİSİZ THREAD DÖNGÜLERİ (AUTO-RECONNECT)
-# ==========================================
-def run_key_bot():
-  init_db()
-  while True:
-    try:
-      print("🔑 Key Bot Başlatılıyor...")
-      key_bot.remove_webhook()
-      key_bot.infinity_polling(
-          skip_pending=True, timeout=60, long_polling_timeout=60
-      )
-    except Exception as e:
-      print(f"Key Bot Hatası: {e}, 5 saniye sonra yeniden başlatılıyor...")
-      time.sleep(5)
-
-
-def run_win_bot():
-  while True:
-    try:
-      print("🛡️ Win SS Bot Başlatılıyor...")
-      win_bot.remove_webhook()
-      win_bot.infinity_polling(
-          skip_pending=True, timeout=60, long_polling_timeout=60
-      )
-    except Exception as e:
-      print(f"Win SS Bot Hatası: {e}, 5 saniye sonra yeniden başlatılıyor...")
-      time.sleep(5)
-
-
-def self_ping():
-  url = "https://rx-hax-backend.onrender.com"
-  while True:
-    try:
-      time.sleep(240)
-      requests.get(url, timeout=10)
-    except Exception:
-      pass
-
-
-if not os.environ.get("BOTS_RUNNING"):
-  os.environ["BOTS_RUNNING"] = "true"
-  threading.Thread(target=run_key_bot, daemon=True).start()
-  threading.Thread(target=run_win_bot, daemon=True).start()
-  threading.Thread(target=self_ping, daemon=True).start()
-
-
-# ==========================================
-# 4. FLASK WEB ROTALARI & LİSANS API
-# ==========================================
-@app.route("/")
-def home():
-  return "RX-HAX Backend & Multi-Bot Sistem Aktif!"
-
-
-@app.route("/api/check")
-def api_check():
-  key = request.args.get("key", "").strip()
-  if not key:
-    return jsonify({"status": "error", "message": "Key parametresi eksik"})
-
-  conn = sqlite3.connect(DB_PATH)
-  cursor = conn.cursor()
-  cursor.execute("SELECT status FROM keys WHERE key_text = ?", (key,))
-  result = cursor.fetchone()
-  conn.close()
-
-  if result:
-    return jsonify({"status": "success", "key_status": result[0]})
-  return jsonify({"status": "error", "message": "Key bulunamadı"})
-
+    app.run_polling()
 
 if __name__ == "__main__":
-  port = int(os.environ.get("PORT", 5000))
-  app.run(host="0.0.0.0", port=port)
-      
+    main()
