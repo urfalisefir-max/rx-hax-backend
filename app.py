@@ -6,11 +6,11 @@ from telegram.ext import (
     MessageHandler, filters, ContextTypes, ConversationHandler
 )
 
-# Bot Token'ı (Render Environment Variables üzerinden veya doğrudan buraya yazabilirsin)
-TOKEN = os.getenv("TELEGRAM_TOKEN", "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ")
+# Kendi gerçek Telegram bot tokenini buraya tırnak içine yaz
+TOKEN = "BURAYA_GERCEK_TOKENINI_YAZ"
 
 # Konuşma Adımları
-CHOOSING_DURATION, CUSTOM_DURATION, CHOOSING_DEVICE, CUSTOM_DEVICE = range(4)
+CHOOSING_DURATION, CUSTOM_DURATION, CHOOSING_DEVICE, CUSTOM_DEVICE, WAITING_FOR_KEY_ACTION = range(5)
 
 # Veritabanı Kurulumu
 def init_db():
@@ -43,15 +43,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif update.callback_query:
         await update.callback_query.edit_message_text("🔑 **Key Yönetim Paneli**", reply_markup=reply_markup, parse_mode="Markdown")
 
-# Adım 1: Key Metnini Alma
+# --- KEY EKLEME AKIŞI ---
 async def start_add_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     await query.edit_message_text("Lütfen eklemek istediğiniz **Key** metnini yazın:")
     return CHOOSING_DURATION
 
-# Adım 2: Süre Seçimi Menüsü
 async def receive_key_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['key_text'] = update.message.text
     
@@ -70,7 +68,18 @@ async def receive_key_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return CHOOSING_DEVICE
 
-# Özel Süre Girme İsteği
+async def duration_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    dur_map = {
+        "dur_1h": "1 SAAT", "dur_1d": "1 GÜN", 
+        "dur_7d": "7 GÜN", "dur_15d": "15 GÜN", "dur_30d": "30 GÜN"
+    }
+    context.user_data['duration'] = dur_map[query.data]
+    
+    return await show_device_menu_query(query, context)
+
 async def custom_duration_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -80,7 +89,6 @@ async def custom_duration_prompt(update: Update, context: ContextTypes.DEFAULT_T
 async def receive_custom_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['duration'] = f"{update.message.text} GÜN"
     
-    # Cihaz Sınırı Menüsüne Geçiş
     keyboard = [
         [InlineKeyboardButton("100 CİHAZ", callback_data="dev_100"), InlineKeyboardButton("250 CİHAZ", callback_data="dev_250")],
         [InlineKeyboardButton("500 CİHAZ", callback_data="dev_500"), InlineKeyboardButton("1000 CİHAZ", callback_data="dev_1000")],
@@ -95,17 +103,7 @@ async def receive_custom_duration(update: Update, context: ContextTypes.DEFAULT_
     )
     return CHOOSING_DEVICE
 
-# Adım 3: Cihaz Sınırı Menüsü (Buton ile gelen)
-async def duration_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    dur_map = {
-        "dur_1h": "1 SAAT", "dur_1d": "1 GÜN", 
-        "dur_7d": "7 GÜN", "dur_15d": "15 GÜN", "dur_30d": "30 GÜN"
-    }
-    context.user_data['duration'] = dur_map[query.data]
-    
+async def show_device_menu_query(query, context):
     keyboard = [
         [InlineKeyboardButton("100 CİHAZ", callback_data="dev_100"), InlineKeyboardButton("250 CİHAZ", callback_data="dev_250")],
         [InlineKeyboardButton("500 CİHAZ", callback_data="dev_500"), InlineKeyboardButton("1000 CİHAZ", callback_data="dev_1000")],
@@ -120,7 +118,15 @@ async def duration_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return CHOOSING_DEVICE
 
-# Özel Cihaz Sınırı İsteği
+async def device_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    dev_map = {"dev_100": 100, "dev_250": 250, "dev_500": 500, "dev_1000": 1000}
+    context.user_data['device_limit'] = dev_map[query.data]
+    
+    return await finalize_key_creation(update, context)
+
 async def custom_device_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -131,22 +137,11 @@ async def receive_custom_device(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['device_limit'] = int(update.message.text)
     return await finalize_key_creation(update, context)
 
-# Adım 4: Key Oluşturma ve Kaydetme
-async def device_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    dev_map = {"dev_100": 100, "dev_250": 250, "dev_500": 500, "dev_1000": 1000}
-    context.user_data['device_limit'] = dev_map[query.data]
-    
-    return await finalize_key_creation(update, context)
-
 async def finalize_key_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     key_text = context.user_data['key_text']
     duration = context.user_data['duration']
     device_limit = context.user_data['device_limit']
     
-    # DB Kayıt
     conn = sqlite3.connect("keys.db")
     cursor = conn.cursor()
     cursor.execute("INSERT OR REPLACE INTO keys (key_text, duration, device_limit, is_frozen) VALUES (?, ?, ?, 0)",
@@ -172,16 +167,78 @@ async def finalize_key_creation(update: Update, context: ContextTypes.DEFAULT_TY
         
     return ConversationHandler.END
 
-# Placeholder - Toggle Freeze
-async def toggle_freeze(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- KEY DONDURMA / ÇÖZME AKIŞI ---
+async def start_toggle_freeze(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Key dondurma özelliği yakında aktif olacak.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Ana Menü", callback_data="main_menu")]]))
+    await query.edit_message_text("Dondurmak veya Çözmek istediğiniz **Key** metnini yazın:")
+    return WAITING_FOR_KEY_ACTION
+
+async def process_toggle_freeze(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    key_text = update.message.text.strip()
+    
+    conn = sqlite3.connect("keys.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT is_frozen FROM keys WHERE key_text = ?", (key_text,))
+    row = cursor.fetchone()
+    
+    if not row:
+        conn.close()
+        await update.message.reply_text("❌ Bu Key veritabanında bulunamadı! Tekrar deneyin veya /start ile dönün.")
+        return WAITING_FOR_KEY_ACTION
+        
+    current_status = row[0]
+    new_status = 0 if current_status == 1 else 1
+    
+    cursor.execute("UPDATE keys SET is_frozen = ? WHERE key_text = ?", (new_status, key_text))
+    conn.commit()
+    conn.close()
+    
+    status_text = "Çözüldü (Aktif) 🟢" if new_status == 0 else "Donduruldu ❄️"
+    
+    keyboard = [[InlineKeyboardButton("🔙 Ana Menü", callback_data="main_menu")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"🔑 **Key:** `{key_text}`\nDurum güncellendi: **{status_text}**\n\n*(C++ tarafı bu durumu algılayıp oturumu kapatacaktır)*",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+    return ConversationHandler.END
+
+# --- KEY SİLME AKIŞI ---
+async def start_delete_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("Silmek istediğiniz **Key** metnini yazın:")
+    return WAITING_FOR_KEY_ACTION
+
+async def process_delete_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    key_text = update.message.text.strip()
+    
+    conn = sqlite3.connect("keys.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM keys WHERE key_text = ?", (key_text,))
+    rowCount = cursor.rowcount
+    conn.commit()
+    conn.close()
+    
+    keyboard = [[InlineKeyboardButton("🔙 Ana Menü", callback_data="main_menu")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if rowCount > 0:
+        msg = f"🗑️ **Key Başarıyla Silindi!**\n🔑 `{key_text}`\n\n*(C++ tarafı key silindiğini algılayıp giriş ekranına atacaktır)*"
+    else:
+        msg = f"❌ Böyle bir key bulunamadı: `{key_text}`"
+        
+    await update.message.reply_text(msg, reply_markup=reply_markup, parse_mode="Markdown")
+    return ConversationHandler.END
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
-    conv_handler = ConversationHandler(
+    # Key Ekleme Handler
+    add_conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_add_key, pattern="^add_key$")],
         states={
             CHOOSING_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_key_text)],
@@ -197,11 +254,32 @@ def main():
         fallbacks=[CommandHandler("start", start)]
     )
 
+    # Key Dondurma Handler
+    freeze_conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_toggle_freeze, pattern="^toggle_freeze$")],
+        states={
+            WAITING_FOR_KEY_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_toggle_freeze)]
+        },
+        fallbacks=[CommandHandler("start", start)]
+    )
+
+    # Key Silme Handler
+    delete_conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_delete_key, pattern="^delete_key$")],
+        states={
+            WAITING_FOR_KEY_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_delete_key)]
+        },
+        fallbacks=[CommandHandler("start", start)]
+    )
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(start, pattern="^main_menu$"))
-    app.add_handler(conv_handler)
+    app.add_handler(add_conv_handler)
+    app.add_handler(freeze_conv_handler)
+    app.add_handler(delete_conv_handler)
 
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+
