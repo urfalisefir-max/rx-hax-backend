@@ -4,4 +4,5 @@ pillow
 pyTelegramBotAPI
 requests
 gunicorn
+python-telegram-bot
 
