@@ -7,7 +7,7 @@ from telegram.ext import (
 )
 
 # Kendi gerçek Telegram bot tokenini buraya tırnak içine yaz
-TOKEN = "BURAYA_GERCEK_TOKENINI_YAZ"
+TOKEN = "9009112136:AAHpDw34EDBNEDbAprBM6MfMgQHoC90j6Oc"
 
 # Konuşma Adımları
 CHOOSING_DURATION, CUSTOM_DURATION, CHOOSING_DEVICE, CUSTOM_DEVICE, WAITING_FOR_KEY_ACTION = range(5)
