@@ -7,7 +7,7 @@ from telegram.ext import (
 )
 
 # Bot Token'ı (Render Environment Variables üzerinden veya doğrudan buraya yazabilirsin)
-TOKEN = os.getenv("TELEGRAM_TOKEN", "BURAYA_GERCEK_TOKENINI_YAZ")
+TOKEN = os.getenv("TELEGRAM_TOKEN", "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ")
 
 # Konuşma Adımları
 CHOOSING_DURATION, CUSTOM_DURATION, CHOOSING_DEVICE, CUSTOM_DEVICE = range(4)
