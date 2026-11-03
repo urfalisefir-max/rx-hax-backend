@@ -1,9 +1,13 @@
+import os
 import sqlite3
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler, 
     MessageHandler, filters, ContextTypes, ConversationHandler
 )
+
+# Bot Token'ı (Render Environment Variables üzerinden veya doğrudan buraya yazabilirsin)
+TOKEN = os.getenv("TELEGRAM_TOKEN", "BURAYA_GERCEK_TOKENINI_YAZ")
 
 # Konuşma Adımları
 CHOOSING_DURATION, CUSTOM_DURATION, CHOOSING_DEVICE, CUSTOM_DEVICE = range(4)
@@ -75,9 +79,23 @@ async def custom_duration_prompt(update: Update, context: ContextTypes.DEFAULT_T
 
 async def receive_custom_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['duration'] = f"{update.message.text} GÜN"
-    return await show_device_menu(update, context)
+    
+    # Cihaz Sınırı Menüsüne Geçiş
+    keyboard = [
+        [InlineKeyboardButton("100 CİHAZ", callback_data="dev_100"), InlineKeyboardButton("250 CİHAZ", callback_data="dev_250")],
+        [InlineKeyboardButton("500 CİHAZ", callback_data="dev_500"), InlineKeyboardButton("1000 CİHAZ", callback_data="dev_1000")],
+        [InlineKeyboardButton("✏️ Manuel Cihaz Sınırı Gir", callback_data="dev_custom")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"Key: `{context.user_data['key_text']}`\nSüre: {context.user_data['duration']}\n\nLütfen **Cihaz Sınırı** seçin:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+    return CHOOSING_DEVICE
 
-# Adım 3: Cihaz Sınırı Menüsü
+# Adım 3: Cihaz Sınırı Menüsü (Buton ile gelen)
 async def duration_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -154,15 +172,14 @@ async def finalize_key_creation(update: Update, context: ContextTypes.DEFAULT_TY
         
     return ConversationHandler.END
 
-# Key Dondurma İşlemi
+# Placeholder - Toggle Freeze
 async def toggle_freeze(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Dondurmak veya Çözmek istediğiniz **Key** metnini yazın:")
-    # Burada tekli mesaj yakalama veya ayrı bir handler kullanılabilir.
+    await query.edit_message_text("Key dondurma özelliği yakında aktif olacak.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Ana Menü", callback_data="main_menu")]]))
 
 def main():
-    app = ApplicationBuilder().token("BOT_TOKEN_BURAYA").build()
+    app = ApplicationBuilder().token(TOKEN).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_add_key, pattern="^add_key$")],
