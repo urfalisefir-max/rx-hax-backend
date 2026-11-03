@@ -27,27 +27,26 @@ gonderilen_fotolar = set()
 
 # Akıllı Veritabanı Onarıcı
 def init_db():
-  conn = sqlite3.connect(DB_PATH)
-  cursor = conn.cursor()
-
-  cursor.execute(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='keys';"
-  )
-  table_exists = cursor.fetchone()
-
-  if not table_exists:
+  try:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
     cursor.execute(
-        """CREATE TABLE keys (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        key_text TEXT UNIQUE,
-                        status TEXT DEFAULT 'active'
-                    )"""
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='keys';"
     )
-  else:
-    cursor.execute("PRAGMA table_info(keys);")
-    columns = [col[1] for col in cursor.fetchall()]
-    if "key_text" not in columns:
-      try:
+    table_exists = cursor.fetchone()
+
+    if not table_exists:
+      cursor.execute(
+          """CREATE TABLE keys (
+                          id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          key_text TEXT UNIQUE,
+                          status TEXT DEFAULT 'active'
+                      )"""
+      )
+    else:
+      cursor.execute("PRAGMA table_info(keys);")
+      columns = [col[1] for col in cursor.fetchall()]
+      if "key_text" not in columns:
         cursor.execute("ALTER TABLE keys RENAME TO keys_old;")
         cursor.execute(
             """CREATE TABLE keys (
@@ -61,11 +60,10 @@ def init_db():
             " keys_old;"
         )
         cursor.execute("DROP TABLE keys_old;")
-      except Exception:
-        pass
-
-  conn.commit()
-  conn.close()
+    conn.commit()
+    conn.close()
+  except Exception as e:
+    print(f"DB Init Hatası: {e}")
 
 
 # ==========================================
@@ -228,33 +226,36 @@ def handle_media(message):
 
   except Exception as e:
     print(f"Hata detayı: {e}")
-    win_bot.reply_to(message, f"⚠️ Hata: {e}")
 
 
 # ==========================================
-# 3. THREAD'LER VE KENDİNİ UYANDIRMA (SELF-PING)
+# 3. KESİNTİSİZ THREAD DÖNGÜLERİ (AUTO-RECONNECT)
 # ==========================================
 def run_key_bot():
-  try:
-    print("🔑 Key Bot Başlatılıyor...")
-    init_db()
-    key_bot.remove_webhook()  # Takılı kalan webhook engellerini temizler
-    key_bot.infinity_polling(
-        skip_pending=True, timeout=60, long_polling_timeout=60
-    )
-  except Exception as e:
-    print(f"Key Bot Polling Hatası: {e}")
+  init_db()
+  while True:
+    try:
+      print("🔑 Key Bot Başlatılıyor...")
+      key_bot.remove_webhook()
+      key_bot.infinity_polling(
+          skip_pending=True, timeout=60, long_polling_timeout=60
+      )
+    except Exception as e:
+      print(f"Key Bot Hatası: {e}, 5 saniye sonra yeniden başlatılıyor...")
+      time.sleep(5)
 
 
 def run_win_bot():
-  try:
-    print("🛡️ Win SS Bot Başlatılıyor...")
-    win_bot.remove_webhook()  # Takılı kalan webhook engellerini temizler
-    win_bot.infinity_polling(
-        skip_pending=True, timeout=60, long_polling_timeout=60
-    )
-  except Exception as e:
-    print(f"Win SS Bot Polling Hatası: {e}")
+  while True:
+    try:
+      print("🛡️ Win SS Bot Başlatılıyor...")
+      win_bot.remove_webhook()
+      win_bot.infinity_polling(
+          skip_pending=True, timeout=60, long_polling_timeout=60
+      )
+    except Exception as e:
+      print(f"Win SS Bot Hatası: {e}, 5 saniye sonra yeniden başlatılıyor...")
+      time.sleep(5)
 
 
 def self_ping():
@@ -302,3 +303,4 @@ def api_check():
 if __name__ == "__main__":
   port = int(os.environ.get("PORT", 5000))
   app.run(host="0.0.0.0", port=port)
+      
