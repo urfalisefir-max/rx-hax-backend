@@ -65,7 +65,6 @@ async def addkey_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     key_text = args[0]
-    # Süre ve cihaz sınırını doğru ayırabilmek için son parametre cihaz sınırıdır
     device_limit = args[-1]
     duration = " ".join(args[1:-1])
 
@@ -180,10 +179,11 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Hata detayı: {e}")
         await message.reply_text(f"⚠️ İşlem sırasında hata oluştu: {e}")
 
+# Render Web Sunucusu (Aiohttp)
 async def web_server(request):
     return web.Response(text="RX HAX Bot is running!")
 
-async def start_web_server():
+async def main():
     app_web = web.Application()
     app_web.add_routes([web.get('/', web_server)])
     runner = web.AppRunner(app_web)
@@ -192,22 +192,21 @@ async def start_web_server():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
 
-async def main():
-    await start_web_server()
-
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("addkey", addkey_command))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.PHOTO, handle_media))
 
-    print("RX HAX Kararlı Sistem Aktif!")
+    print("RX HAX Kararlı Sistem Başlatılıyor...")
     await app.initialize()
     await app.start()
-    await app.updater.start_polling()
+    await app.updater.start_polling(drop_pending_updates=True)
 
+    # Botun kapanmaması için sonsuz döngü
     import asyncio
-    await asyncio.Event().wait()
+    while True:
+        await asyncio.sleep(3600)
 
 if __name__ == "__main__":
     import asyncio
