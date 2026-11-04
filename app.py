@@ -37,13 +37,11 @@ def init_db():
 
 init_db()
 gonderilen_fotolar = set()
-
-# Kullanıcı durumlarını takip etmek için hafıza sözlüğü
 user_states = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user_states[user_id] = {} # Durumu sıfırla
+    user_states[user_id] = {}
     
     keyboard = [
         [InlineKeyboardButton("➕ Key Ekle (Add Key)", callback_data="add_key")],
@@ -60,6 +58,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     data = query.data
+
+    if user_id not in user_states:
+        user_states[user_id] = {}
 
     if data == "main_menu":
         user_states[user_id] = {}
@@ -90,16 +91,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_states[user_id]["duration"] = sure
         user_states[user_id]["step"] = "waiting_device_limit"
         
-        # Cihaz Sınırı Menüsü
-        keyboard = [
-            [InlineKeyboardButton("100 Cihaz", callback_data=" cihaz_100")],
-            [InlineKeyboardButton("250 Cihaz", callback_data="cihaz_250")],
-            [InlineKeyboardButton("500 Cihaz", callback_data="cihaz_500")],
-            [InlineKeyboardButton("1000 Cihaz", callback_data="cihaz_1000")],
-            [InlineKeyboardButton("✏️ Manuel Cihaz Gir", callback_data="cihaz_custom")],
-            [InlineKeyboardButton("🔙 İptal", callback_data="main_menu")]
-        ]
-        # Hatalı boşluk düzeltmesi
         keyboard = [
             [InlineKeyboardButton("100 Cihaz", callback_data="cihaz_100")],
             [InlineKeyboardButton("250 Cihaz", callback_data="cihaz_250")],
@@ -161,7 +152,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("250 Cihaz", callback_data="cihaz_250")],
             [InlineKeyboardButton("500 Cihaz", callback_data="cihaz_500")],
             [InlineKeyboardButton("1000 Cihaz", callback_data="cihaz_1000")],
-            [InlineKeyboardButton("✏️ Manuel Cihaz Gir", callback_data="cihaz_custom")]
+            [InlineKeyboardButton("✏️ Manuel Cihaz Gir", callback_data="cihaz_custom")],
+            [InlineKeyboardButton("🔙 İptal", callback_data="main_menu")]
         ]
         await update.message.reply_text(f"✅ Süre belirlendi: {text} Gün\n\n📱 Şimdi **Cihaz Sınırını** seç veya yaz:", reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -241,7 +233,6 @@ async def save_key_to_db_message(update, user_id):
     
     user_states[user_id] = {}
 
-# --- WIN SS KONTROLÜ ---
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         message = update.message
@@ -307,7 +298,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Hata detayı: {e}")
         await message.reply_text(f"⚠️ İşlem sırasında hata oluştu: {e}")
 
-# Web Sunucusu
 async def web_server(request):
     return web.Response(text="RX HAX Bot is running!")
 
