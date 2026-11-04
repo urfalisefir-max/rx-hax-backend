@@ -89,7 +89,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         user_states[user_id]["duration"] = sure
-        user_states[user_id]["step"] = "waiting_device_limit"
+        user_states[user_id]["step"] = "waiting_device_choice"
         
         keyboard = [
             [InlineKeyboardButton("100 Cihaz", callback_data="cihaz_100")],
@@ -145,7 +145,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif step == "waiting_custom_duration":
         user_states[user_id]["duration"] = f"{text} Gün"
-        user_states[user_id]["step"] = "waiting_device_limit"
+        user_states[user_id]["step"] = "waiting_device_choice"
 
         keyboard = [
             [InlineKeyboardButton("100 Cihaz", callback_data="cihaz_100")],
@@ -284,7 +284,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption_text = (
             f"🎯 **Yeni Win / MVP SS Tespit Edildi!**\n\n"
             f"👤 **Gönderen:** {gonderen}\n"
-            f"🔍 **Durum:** Etiket ve Oyun Ekranı Doğrulandı!"
+            f"🔍 **Durum:** Etiket-Oyun Ekranı Doğrulandı!"
         )
         await context.bot.send_photo(
             chat_id=HEDEF_KANAL,
@@ -330,3 +330,4 @@ async def main():
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
+        
