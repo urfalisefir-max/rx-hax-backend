@@ -19,7 +19,7 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 TOKEN = "9009112136:AAFmLQrTB1u3InEw2vyX4sYGmdKPR_F_u1c"
 HEDEF_KANAL = "@RXWINSS"
 
-# Veritabanı (keys.db) Kurulumu
+# Veritabanı (keys.db) Kurulumu (Cihaz sınırı kaldırıldı)
 def init_db():
     conn = sqlite3.connect("keys.db")
     cursor = conn.cursor()
@@ -28,7 +28,6 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             key_text TEXT UNIQUE,
             duration TEXT,
-            device_limit INTEGER,
             status TEXT
         )
     ''')
@@ -89,27 +88,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         user_states[user_id]["duration"] = sure
-        user_states[user_id]["step"] = "waiting_device_choice"
-        
-        keyboard = [
-            [InlineKeyboardButton("100 Cihaz", callback_data="cihaz_100")],
-            [InlineKeyboardButton("250 Cihaz", callback_data="cihaz_250")],
-            [InlineKeyboardButton("500 Cihaz", callback_data="cihaz_500")],
-            [InlineKeyboardButton("1000 Cihaz", callback_data="cihaz_1000")],
-            [InlineKeyboardButton("✏️ Manuel Cihaz Gir", callback_data="cihaz_custom")],
-            [InlineKeyboardButton("🔙 İptal", callback_data="main_menu")]
-        ]
-        await query.edit_message_text("📱 Şimdi de **Cihaz Sınırını** seç veya manuel gir:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-    elif data.startswith("cihaz_"):
-        cihaz_secim = data.replace("cihaz_", "")
-        if cihaz_secim == "custom":
-            user_states[user_id]["step"] = "waiting_custom_device"
-            keyboard = [[InlineKeyboardButton("🔙 İptal", callback_data="main_menu")]]
-            await query.edit_message_text("📱 Lütfen izin verilen cihaz sınırını sayı olarak yaz (Örn: 750):", reply_markup=InlineKeyboardMarkup(keyboard))
-            return
-
-        user_states[user_id]["device_limit"] = int(cihaz_secim)
         await save_key_to_db(query, user_id)
 
     elif data == "freeze_key":
@@ -145,37 +123,18 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif step == "waiting_custom_duration":
         user_states[user_id]["duration"] = f"{text} Gün"
-        user_states[user_id]["step"] = "waiting_device_choice"
-
-        keyboard = [
-            [InlineKeyboardButton("100 Cihaz", callback_data="cihaz_100")],
-            [InlineKeyboardButton("250 Cihaz", callback_data="cihaz_250")],
-            [InlineKeyboardButton("500 Cihaz", callback_data="cihaz_500")],
-            [InlineKeyboardButton("1000 Cihaz", callback_data="cihaz_1000")],
-            [InlineKeyboardButton("✏️ Manuel Cihaz Gir", callback_data="cihaz_custom")],
-            [InlineKeyboardButton("🔙 İptal", callback_data="main_menu")]
-        ]
-        await update.message.reply_text(f"✅ Süre belirlendi: {text} Gün\n\n📱 Şimdi **Cihaz Sınırını** seç veya yaz:", reply_markup=InlineKeyboardMarkup(keyboard))
-
-    elif step == "waiting_custom_device":
-        try:
-            limit = int(text)
-            user_states[user_id]["device_limit"] = limit
-            await save_key_to_db_message(update, user_id)
-        except ValueError:
-            await update.message.reply_text("⚠️ Lütfen geçerli bir sayı gir!")
+        await save_key_to_db_message(update, user_id)
 
 async def save_key_to_db(query, user_id):
     data = user_states.get(user_id, {})
     key_text = data.get("key_text")
     duration = data.get("duration")
-    device_limit = data.get("device_limit")
 
     conn = sqlite3.connect("keys.db")
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO keys (key_text, duration, device_limit, status) VALUES (?, ?, ?, ?)", 
-                       (key_text, duration, device_limit, "Aktif"))
+        cursor.execute("INSERT INTO keys (key_text, duration, status) VALUES (?, ?, ?)", 
+                       (key_text, duration, "Aktif"))
         conn.commit()
         success = True
     except sqlite3.IntegrityError:
@@ -189,7 +148,6 @@ async def save_key_to_db(query, user_id):
             f"🎉 **Key Başarıyla Oluşturuldu!**\n\n"
             f"🔑 Key: `{key_text}`\n"
             f"⏱ Süre: {duration}\n"
-            f"📱 Cihaz Sınırı: {device_limit}\n"
             f"🟢 Durum: Aktif",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -203,13 +161,12 @@ async def save_key_to_db_message(update, user_id):
     data = user_states.get(user_id, {})
     key_text = data.get("key_text")
     duration = data.get("duration")
-    device_limit = data.get("device_limit")
 
     conn = sqlite3.connect("keys.db")
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO keys (key_text, duration, device_limit, status) VALUES (?, ?, ?, ?)", 
-                       (key_text, duration, device_limit, "Aktif"))
+        cursor.execute("INSERT INTO keys (key_text, duration, status) VALUES (?, ?, ?)", 
+                       (key_text, duration, "Aktif"))
         conn.commit()
         success = True
     except sqlite3.IntegrityError:
@@ -223,7 +180,6 @@ async def save_key_to_db_message(update, user_id):
             f"🎉 **Key Başarıyla Oluşturuldu!**\n\n"
             f"🔑 Key: `{key_text}`\n"
             f"⏱ Süre: {duration}\n"
-            f"📱 Cihaz Sınırı: {device_limit}\n"
             f"🟢 Durum: Aktif",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -233,6 +189,7 @@ async def save_key_to_db_message(update, user_id):
     
     user_states[user_id] = {}
 
+# Win SS Kontrolü
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         message = update.message
@@ -284,7 +241,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption_text = (
             f"🎯 **Yeni Win / MVP SS Tespit Edildi!**\n\n"
             f"👤 **Gönderen:** {gonderen}\n"
-            f"🔍 **Durum:** Etiket-Oyun Ekranı Doğrulandı!"
+            f"🔍 **Durum:** Etiket ve Oyun Ekranı Doğrulandı!"
         )
         await context.bot.send_photo(
             chat_id=HEDEF_KANAL,
@@ -319,7 +276,7 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     app.add_handler(MessageHandler(filters.PHOTO, handle_media))
 
-    print("RX HAX Tam Entegre Sistem Aktif!")
+    print("RX HAX Sadeleştirilmiş Sistem Aktif!")
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
@@ -330,4 +287,4 @@ async def main():
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
-        
+    
