@@ -28,6 +28,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             key_text TEXT UNIQUE,
             duration TEXT,
+            device_limit INTEGER,
             status TEXT
         )
     ''')
@@ -36,70 +37,202 @@ def init_db():
 
 init_db()
 gonderilen_fotolar = set()
+user_states = {}
 
-# /start Komutu
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_states[user_id] = {}
+    
     keyboard = [
-        [InlineKeyboardButton("➕ Key Yönetimi", callback_data="key_menu")],
-        [InlineKeyboardButton("📊 Bot Durumu", callback_data="status")]
+        [InlineKeyboardButton("➕ Key Ekle (Add Key)", callback_data="add_key")],
+        [InlineKeyboardButton("❄️ Key Dondur / Çöz", callback_data="freeze_key")],
+        [InlineKeyboardButton("🗑️ Key Sil", callback_data="delete_key")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "🔑 **RX HAX Yönetim Paneline Hoş Geldin ROXY!**\n\n"
-        "• Komutla hızlıca key eklemek için: `/addkey [key] [süre]` (Örn: `/addkey RX-1234 1 Gün`)\n"
-        "• Veya aşağıdaki butonları kullanabilirsin:",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
+    
+    if update.message:
+        await update.message.reply_text("🔑 **Key Yönetim Paneli**\n\nYapmak istediğin işlemi seç:", reply_markup=reply_markup, parse_mode="Markdown")
 
-# /addkey Komutu ile Hızlı Ekleme
-async def addkey_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    if len(args) < 2:
-        await update.message.reply_text("⚠️ **Kullanım Hatası!**\nÖrnek kullanım: `/addkey RX-TEST-1234 1 Gün`", parse_mode="Markdown")
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data
+
+    if user_id not in user_states:
+        user_states[user_id] = {}
+
+    if data == "main_menu":
+        user_states[user_id] = {}
+        keyboard = [
+            [InlineKeyboardButton("➕ Key Ekle (Add Key)", callback_data="add_key")],
+            [InlineKeyboardButton("❄️ Key Dondur / Çöz", callback_data="freeze_key")],
+            [InlineKeyboardButton("🗑️ Key Sil", callback_data="delete_key")]
+        ]
+        await query.edit_message_text("🔑 **Key Yönetim Paneli**\n\nYapmak istediğin işlemi seç:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+    elif data == "add_key":
+        user_states[user_id] = {"step": "waiting_key_text"}
+        keyboard = [[InlineKeyboardButton("🔙 İptal / Ana Menü", callback_data="main_menu")]]
+        await query.edit_message_text(
+            "✍️ Lütfen eklemek istediğin **Key (Lisans) metnini** yaz ve gönder:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+
+    elif data.startswith("durum_"):
+        sure = data.replace("durum_", "")
+        if sure == "custom":
+            user_states[user_id]["step"] = "waiting_custom_duration"
+            keyboard = [[InlineKeyboardButton("🔙 İptal", callback_data="main_menu")]]
+            await query.edit_message_text("⏱️ Lütfen kaç gün olacağını klavyeden sayı olarak yaz (Örn: 45):", reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        user_states[user_id]["duration"] = sure
+        user_states[user_id]["step"] = "waiting_device_choice"
+        
+        keyboard = [
+            [InlineKeyboardButton("100 Cihaz", callback_data="cihaz_100")],
+            [InlineKeyboardButton("250 Cihaz", callback_data="cihaz_250")],
+            [InlineKeyboardButton("500 Cihaz", callback_data="cihaz_500")],
+            [InlineKeyboardButton("1000 Cihaz", callback_data="cihaz_1000")],
+            [InlineKeyboardButton("✏️ Manuel Cihaz Gir", callback_data="cihaz_custom")],
+            [InlineKeyboardButton("🔙 İptal", callback_data="main_menu")]
+        ]
+        await query.edit_message_text("📱 Şimdi de **Cihaz Sınırını** seç veya manuel gir:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+    elif data.startswith("cihaz_"):
+        cihaz_secim = data.replace("cihaz_", "")
+        if cihaz_secim == "custom":
+            user_states[user_id]["step"] = "waiting_custom_device"
+            keyboard = [[InlineKeyboardButton("🔙 İptal", callback_data="main_menu")]]
+            await query.edit_message_text("📱 Lütfen izin verilen cihaz sınırını sayı olarak yaz (Örn: 750):", reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        user_states[user_id]["device_limit"] = int(cihaz_secim)
+        await save_key_to_db_query(query, user_id)
+
+    elif data == "freeze_key":
+        keyboard = [[InlineKeyboardButton("🔙 Ana Menü", callback_data="main_menu")]]
+        await query.edit_message_text("❄️ Key dondurma ve çözme paneli yakında aktif olacaktır.", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "delete_key":
+        keyboard = [[InlineKeyboardButton("🔙 Ana Menü", callback_data="main_menu")]]
+        await query.edit_message_text("🗑️ Key silme paneli yakında aktif olacaktır.", reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text.strip()
+
+    if user_id not in user_states or "step" not in user_states[user_id]:
         return
 
-    key_text = args[0]
-    duration = " ".join(args[1:])
+    step = user_states[user_id]["step"]
+
+    if step == "waiting_key_text":
+        user_states[user_id]["key_text"] = text
+        user_states[user_id]["step"] = "waiting_duration"
+        
+        keyboard = [
+            [InlineKeyboardButton("1 Saat", callback_data="durum_1 Saat")],
+            [InlineKeyboardButton("1 Gün", callback_data="durum_1 Gün")],
+            [InlineKeyboardButton("7 Gün", callback_data="durum_7 Gün")],
+            [InlineKeyboardButton("15 Gün", callback_data="durum_15 Gün")],
+            [InlineKeyboardButton("30 Gün", callback_data="durum_30 Gün")],
+            [InlineKeyboardButton("✏️ Özel Gün Sayısı Gir", callback_data="durum_custom")]
+        ]
+        await update.message.reply_text(f"✅ Key alındı: `{text}`\n\n⏱️ Şimdi **Süreyi** seç:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+    elif step == "waiting_custom_duration":
+        user_states[user_id]["duration"] = f"{text} Gün"
+        user_states[user_id]["step"] = "waiting_device_choice"
+
+        keyboard = [
+            [InlineKeyboardButton("100 Cihaz", callback_data="cihaz_100")],
+            [InlineKeyboardButton("250 Cihaz", callback_data="cihaz_250")],
+            [InlineKeyboardButton("500 Cihaz", callback_data="cihaz_500")],
+            [InlineKeyboardButton("1000 Cihaz", callback_data="cihaz_1000")],
+            [InlineKeyboardButton("✏️ Manuel Cihaz Gir", callback_data="cihaz_custom")],
+            [InlineKeyboardButton("🔙 İptal", callback_data="main_menu")]
+        ]
+        await update.message.reply_text(f"✅ Süre belirlendi: {text} Gün\n\n📱 Şimdi **Cihaz Sınırını** seç veya yaz:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif step == "waiting_custom_device":
+        try:
+            limit = int(text)
+            user_states[user_id]["device_limit"] = limit
+            await save_key_to_db_message(update, user_id)
+        except ValueError:
+            await update.message.reply_text("⚠️ Lütfen geçerli bir sayı gir!")
+
+async def save_key_to_db_query(query, user_id):
+    data = user_states.get(user_id, {})
+    key_text = data.get("key_text")
+    duration = data.get("duration")
+    device_limit = data.get("device_limit")
 
     conn = sqlite3.connect("keys.db")
     cursor = conn.cursor()
     try:
-        cursor.execute("INSERT INTO keys (key_text, duration, status) VALUES (?, ?, ?)", (key_text, duration, "Aktif"))
+        cursor.execute("INSERT INTO keys (key_text, duration, device_limit, status) VALUES (?, ?, ?, ?)", 
+                       (key_text, duration, device_limit, "Aktif"))
         conn.commit()
         success = True
     except sqlite3.IntegrityError:
         success = False
     conn.close()
 
+    keyboard = [[InlineKeyboardButton("🔙 Ana Menüye Dön", callback_data="main_menu")]]
+    
     if success:
-        await update.message.reply_text(
-            f"🎉 **Key Başarıyla Eklendi!**\n\n"
+        await query.edit_message_text(
+            f"🎉 **Key Başarıyla Oluşturuldu!**\n\n"
             f"🔑 Key: `{key_text}`\n"
             f"⏱ Süre: {duration}\n"
+            f"📱 Cihaz Sınırı: {device_limit}\n"
             f"🟢 Durum: Aktif",
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
     else:
-        await update.message.reply_text("⚠️ Bu key zaten veritabanında kayıtlı!")
+        await query.edit_message_text("⚠️ Bu key zaten veritabanında kayıtlı!", reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    user_states[user_id] = {}
 
-# Buton Yönetimi
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+async def save_key_to_db_message(update, user_id):
+    data = user_states.get(user_id, {})
+    key_text = data.get("key_text")
+    duration = data.get("duration")
+    device_limit = data.get("device_limit")
 
-    if query.data == "key_menu":
-        await query.edit_message_text(
-            "🔑 **Key Ekleme Bilgisi**\n\n"
-            "Key eklemek için sohbete şu komutu yazabilirsin:\n"
-            "`/addkey [key_kodu] [süre]`\n"
-            "Örnek: `/addkey RX-VIP-99 30 Gün`",
+    conn = sqlite3.connect("keys.db")
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO keys (key_text, duration, device_limit, status) VALUES (?, ?, ?, ?)", 
+                       (key_text, duration, device_limit, "Aktif"))
+        conn.commit()
+        success = True
+    except sqlite3.IntegrityError:
+        success = False
+    conn.close()
+
+    keyboard = [[InlineKeyboardButton("🔙 Ana Menüye Dön", callback_data="main_menu")]]
+    
+    if success:
+        await update.message.reply_text(
+            f"🎉 **Key Başarıyla Oluşturuldu!**\n\n"
+            f"🔑 Key: `{key_text}`\n"
+            f"⏱ Süre: {duration}\n"
+            f"📱 Cihaz Sınırı: {device_limit}\n"
+            f"🟢 Durum: Aktif",
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
-    elif query.data == "status":
-        await query.answer("Sistemler aktif ve stabil çalışıyor!", show_alert=True)
+    else:
+        await update.message.reply_text("⚠️ Bu key zaten veritabanında kayıtlı!", reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    user_states[user_id] = {}
 
-# Win SS Kontrolü
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         message = update.message
@@ -165,7 +298,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Hata detayı: {e}")
         await message.reply_text(f"⚠️ İşlem sırasında hata oluştu: {e}")
 
-# Web Sunucusu
 async def web_server(request):
     return web.Response(text="RX HAX Bot is running!")
 
@@ -183,11 +315,11 @@ async def main():
 
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("addkey", addkey_command))
     app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     app.add_handler(MessageHandler(filters.PHOTO, handle_media))
 
-    print("RX HAX Komutlu Sistem Aktif!")
+    print("RX HAX Tam Entegre Sistem Aktif!")
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
